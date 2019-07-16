@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <link rel="stylesheet" type="text/css" href="http://js.api.here.com/v3/3.0/mapsjs-ui.css" />
+        <style>
+            .H_ib_content {
+                padding: 15px;
+                font-size: 12pt;
+                width: 50vw;
+                max-width: 250px;
+            }
+        </style>
+    </head>
+    <body style="margin: 0">
+        <div id="map" style="width: 100vw; height: 100vh;"></div>
+        <script src="http://js.api.here.com/v3/3.0/mapsjs-core.js" type="text/javascript" charset="utf-8"></script>
+        <script src="http://js.api.here.com/v3/3.0/mapsjs-service.js" type="text/javascript" charset="utf-8"></script>
+        <script src="http://js.api.here.com/v3/3.0/mapsjs-mapevents.js" type="text/javascript" charset="utf-8"></script>
+        <script src="http://js.api.here.com/v3/3.0/mapsjs-ui.js" type="text/javascript" charset="utf-8"></script>
+        <script src="https://js.api.here.com/v3/3.0/mapsjs-places.js" type="text/javascript" charset="utf-8"></script>
+        <script>
+            const platform = new H.service.Platform({
+                "app_id": "HERE_APP_ID",
+                "app_code": "HERE_APP_CODE"
+            });
+            const defaultLayers = platform.createDefaultLayers();
+            const map = new H.Map(
+                document.getElementById("map"),
+                defaultLayers.normal.map,
+                {
+                    zoom: 6,
+                    center: { lat: 37.7397, lng: -121.4252 }
+                }
+            );
+            const ui = H.ui.UI.createDefault(map, defaultLayers);
+            const mapEvent = new H.mapevents.MapEvents(map);
+            const behavior = new H.mapevents.Behavior(mapEvent);
+            const routingService = platform.getRoutingService();
+            const search = new H.places.Search(platform.getPlacesService());
+            var isolinePolygon;
+            var placesGroup;
+            fetch("http://localhost:3000/vehicles/location")
+                .then(response => response.json())
+                .then(vehicles => {
+                    let markerGroup = new H.map.Group();
+                    vehicles.forEach(vehicle => {
+                        let icon = new H.map.Icon("car-marker.png", { "size": { "w": 48, "h": "48" }});
+                        let marker = new H.map.Marker({ lat: vehicle.location.latitude, lng: vehicle.location.longitude }, { icon: icon });
+                        marker.addEventListener("tap", event => {
+                            fetch(`http://localhost:3000/vehicle/${vehicle.id}/info`)
+                                .then(response => response.json())
+                                .then(info => {
+                                    var bubble = new H.ui.InfoBubble(event.target.getPosition(), {
+                                        content: `<p>${info.year} ${info.make} ${info.model}</p>`
+                                    });
+                                    ui.addBubble(bubble);
+                                });
+                            fetch(`http://localhost:3000/vehicle/${vehicle.id}/fuel`)
+                                .then(response => response.json())
+                                .then(fuel => {
+                                    search.request({ "q": "shell", "in": marker.getPosition().lat + "," + marker.getPosition().lng + ";r=" + (Math.floor(fuel.data.range) * 1609) }, {}, data => {
+                                        if(placesGroup != null) {
+                                            map.removeObject(placesGroup);
+                                        }
+                                        placesGroup = new H.map.Group();
+                                        data.results.items.forEach(place => {
+                                            placesGroup.addObject(new H.map.Marker({ "lat": place.position[0], "lng": place.position[1] }));
+                                            console.log(place);
+                                        });
+                                        map.addObject(placesGroup);
+                                    }, error => {
+                                        console.error(error);
+                                    });
+                                    routingService.calculateIsoline(
+                                        {
+                                            start: marker.getPosition().lat + "," + marker.getPosition().lng,
+                                            mode: "fastest;car;traffic:enabled",
+                                            departure: "now",
+                                            rangeType: "distance",
+                                            range: Math.floor(fuel.data.range) * 1609
+
+                                        },
+                                        success => {
+                                            if(success.response.isoline.length > 0 && success.response.isoline[0].component.length > 0) {
+                                                let shape = success.response.isoline[0].component[0].shape;
+                                                let lineString = new H.geo.LineString();
+                                                shape.forEach(points => {
+                                                    let parts = points.split(",");
+                                                    lineString.pushPoint({
+                                                        lat: parts[0],
+                                                        lng: parts[1]
+                                                    })
+                                                });
+                                                if(isolinePolygon != null) {
+                                                    map.removeObject(isolinePolygon);
+                                                }
+                                                isolinePolygon = new H.map.Polygon(lineString);
+                                                map.addObject(isolinePolygon);
+                                                map.setViewBounds(isolinePolygon.getBounds());
+                                            }
+                                        }, error => {
+                                            console.error(error);
+                                        }
+                                    );
+                                });
+                        }, false);
+                        markerGroup.addObject(marker);
+                    });
+                    map.addObject(markerGroup);
+                    map.setViewBounds(markerGroup.getBounds());
+                });
+        </script>
+    </body>
+</html>
