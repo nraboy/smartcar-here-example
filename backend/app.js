@@ -10,7 +10,7 @@ app.use(BodyParser.urlencoded({ extended: true }));
 app.use(Cors());
 
 const SMARTCAR_CLIENT_ID = "CLIENT_ID_HERE";
-const SMARTCAR_CLIENT_SECRET = "CLIENT_SECRET_HERE";
+const SMARTCAR_CLIENT_SECRET = "CLIENT_ID_HERE";
 const SMARTCAR_REDIRECT_URL = "http://localhost:3000/exchange";
 
 var smartcar_access_token = "";
@@ -19,12 +19,12 @@ const client = new Smartcar.AuthClient({
     clientId: SMARTCAR_CLIENT_ID,
     clientSecret: SMARTCAR_CLIENT_SECRET,
     redirectUri: SMARTCAR_REDIRECT_URL,
-    scope: ["read_vehicle_info", "read_location", "read_vin", "read_fuel", "read_battery", "read_charge"],
+    scope: ["required:read_vehicle_info", "required:read_location", "required:read_vin", "required:read_fuel", "read_battery", "read_charge"],
     testMode: true,
 });
 
 app.get("/login", (request, response) => {
-    const link = client.getAuthUrl();
+    const link = client.getAuthUrl({ forcePrompt: true });
     response.redirect(link);
 });
 
@@ -32,8 +32,8 @@ app.get("/exchange", (request, response) => {
     const code = request.query.code;
     client.exchangeCode(code).then(access => {
         smartcar_access_token = access.accessToken;
-        response.send(access);
-        //response.redirect("http://localhost:2015");
+        //response.send(access);
+        response.redirect("http://localhost:2015");
     });
 });
 
@@ -43,6 +43,9 @@ app.get("/vehicles/location", (request, response) => {
     }).then(ids => {
         return vehicles = ids.map(async id => {
             let vehicle = new Smartcar.Vehicle(id, smartcar_access_token);
+            /*vehicle.disconnect().then(result => {
+                console.log(result);
+            })*/
             return vehicle.location().then(location => {
                 return {
                     id,
